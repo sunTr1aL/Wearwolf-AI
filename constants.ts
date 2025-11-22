@@ -2,6 +2,7 @@
 
 
 
+
 import { RoleType, RoleConfig, Translation } from './types';
 
 export const ROLES: Record<RoleType, RoleConfig> = {
@@ -130,6 +131,11 @@ export const TEXT: Translation = {
   host_content: { 
     en: '1. Select "Multiplayer" on the home screen.\n2. Leave "Room ID" empty and click "Create Room".\n3. Share the generated Room ID with friends.\n4. Use the "+" and "-" buttons to adjust the number of roles.\n5. Use "Add Bot" to fill empty spots with AI players.', 
     zh: '1. 在主页选择“多人游戏”。\n2. 留空“房间号”，点击“创建房间”。\n3. 将生成的房间号分享给好友。\n4. 使用“+”和“-”按钮调整板子配置。\n5. 使用“添加 AI”按钮用机器人填补空位。' 
+  },
+  internet_title: { en: 'Internet Play (Tunneling)', zh: '远程联机 (内网穿透)' },
+  internet_content: {
+    en: 'To play with friends outside your Wi-Fi, you need to expose your local server to the internet.\n\n1. Download and install [ngrok](https://ngrok.com).\n2. Run the game server: `npm run server`.\n3. Open a terminal and run: `ngrok http 3000`.\n4. Copy the HTTPS Forwarding URL (e.g., https://abcd.ngrok-free.app).\n5. Paste this URL into the "Advanced: Server Connection" box on ALL devices (including yours).',
+    zh: '如果朋友不在同一个 WiFi 下，你需要将本地服务器暴露到公网。\n\n1. 下载并安装 [ngrok](https://ngrok.com)。\n2. 启动游戏服务器：`npm run server`。\n3. 打开终端运行：`ngrok http 3000`。\n4. 复制 HTTPS Forwarding 地址（例如 https://abcd.ngrok-free.app）。\n5. 在所有设备（包括你自己）的“高级：服务器连接”框中输入该地址。'
   },
   controls_title: { en: 'Controls', zh: '操作指南' },
   controls_content: { 

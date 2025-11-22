@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { io, Socket } from 'socket.io-client';
@@ -86,7 +87,14 @@ const createInitialPlayers = (userName: string, roleConfig: Record<RoleType, num
 const App: React.FC = () => {
   // --- Local Settings State ---
   const [mode, setMode] = useState<'offline' | 'online'>('offline');
-  const [serverUrl, setServerUrl] = useState('http://localhost:3000');
+  const [serverUrl, setServerUrl] = useState(() => {
+    // If running in browser, try to infer backend URL if on same host
+    if (typeof window !== 'undefined') {
+        return `${window.location.protocol}//${window.location.hostname}:3000`;
+    }
+    return 'http://localhost:3000';
+  });
+  const [showServerConfig, setShowServerConfig] = useState(false);
   const [roomId, setRoomId] = useState('');
   const [userName, setUserName] = useState('');
   const [language, setLanguage] = useState<Language>('en');
@@ -719,6 +727,10 @@ const App: React.FC = () => {
                <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">{t('host_content')}</p>
              </section>
              <section>
+               <h3 className="text-lg font-bold text-pink-400 mb-2">{t('internet_title')}</h3>
+               <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">{t('internet_content')}</p>
+             </section>
+             <section>
                <h3 className="text-lg font-bold text-green-400 mb-2">{t('controls_title')}</h3>
                <p className="text-sm text-slate-300 whitespace-pre-line leading-relaxed">{t('controls_content')}</p>
              </section>
@@ -786,14 +798,41 @@ const App: React.FC = () => {
 
              {mode === 'online' && (
                  <div>
-                    <label className="block text-sm text-slate-400 mb-1">Room ID (Optional - Leave empty to Create)</label>
-                    <input
-                      className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white focus:border-purple-500 outline-none"
-                      value={roomId}
-                      onChange={e => setRoomId(e.target.value)}
-                      placeholder="e.g. 53a1b..."
-                    />
-                    {roomId && <p className="text-xs text-purple-400 mt-1">Joining existing room...</p>}
+                    <div className="mb-2">
+                      <label className="block text-sm text-slate-400 mb-1">Room ID (Optional - Leave empty to Create)</label>
+                      <input
+                        className="w-full bg-slate-950 border border-slate-700 rounded p-3 text-white focus:border-purple-500 outline-none"
+                        value={roomId}
+                        onChange={e => setRoomId(e.target.value)}
+                        placeholder="e.g. 53a1b..."
+                      />
+                      {roomId && <p className="text-xs text-purple-400 mt-1">Joining existing room...</p>}
+                    </div>
+
+                    {/* Server Config Toggle */}
+                    <div className="pt-2">
+                        <button 
+                            onClick={() => setShowServerConfig(!showServerConfig)}
+                            className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1"
+                        >
+                            {showServerConfig ? '▼' : '▶'} Advanced: Server Connection
+                        </button>
+                        
+                        {showServerConfig && (
+                            <div className="mt-2 p-3 bg-slate-950/50 rounded border border-slate-800 transition-all">
+                                <label className="block text-xs text-slate-400 mb-1">Backend Server URL</label>
+                                <input
+                                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-300 focus:border-blue-500 outline-none font-mono"
+                                    value={serverUrl}
+                                    onChange={e => setServerUrl(e.target.value)}
+                                    placeholder="http://localhost:3000"
+                                />
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                    If playing with friends over the internet, use a public URL (e.g. from ngrok). See "Instructions" for details.
+                                </p>
+                            </div>
+                        )}
+                    </div>
                  </div>
              )}
 

@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 1234,
+      host: true,
     }
   };
 });
