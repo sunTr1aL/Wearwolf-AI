@@ -1,106 +1,112 @@
-# Wearwolf-AI
 
-Wearwolf-AI is an online, real-time implementation of the social deduction game 狼人杀 (Werewolf), with support for AI players and human players in the same lobby.
+# Werewolf AI (狼人杀)
 
-The app lets you:
-
-- Create a room and configure a custom role pool
-- Invite friends via a shareable room link
-- Play with both human and AI players
-- Use strict, timed, turn-based speaking phases (voice handled outside the app)
-- Play in English or Chinese UI
-- Use advanced roles and sheriff / “上警” mechanics
-
----
+A modern, web-based implementation of the classic social deduction game **Werewolf** (Mafia). This application features a robust Single Player mode with AI opponents powered by Google's Gemini API, as well as a real-time Multiplayer mode for playing with friends.
 
 ## Features
 
-### Core Gameplay
+*   **Single Player Mode**: Play against 11 AI bots that vote, use abilities, and chat using natural language generation (Gemini).
+*   **Multiplayer Mode**: Host a room and invite friends via a Room ID.
+*   **Hybrid AI**: Fill empty multiplayer slots with AI bots to fill the roster.
+*   **Roles Included**:
+    *   Villager, Werewolf, Seer, Witch, Hunter, Guardian, Idiot, White Wolf King, Wolf Beauty, Cupid.
+*   **Game Mechanics**:
+    *   Real-time Day/Night cycles.
+    *   Sheriff Elections with weighted voting (1.5x).
+    *   Sheriff Badge handover or destruction logic.
+    *   Secret chat channels (Werewolf night chat, Dead player chat).
+    *   Host-controlled game flow.
+*   **Bilingual Support**: Full support for English and Chinese (Simplified).
 
-- Real-time, browser-based multi-player Werewolf game
-- Room system:
-  - Create a room as host
-  - Configure player count and role composition
-  - Share an invite link so others can join
-- AI players:
-  - Fill empty seats with AI bots
-  - Mix AI and human players in the same game
-- Room member list:
-  - Shows all players in the room (human + AI)
-  - Shows which player is the host
+## Tech Stack
 
-### Roles
+*   **Frontend**: React 19, TypeScript, Tailwind CSS.
+*   **Backend**: Node.js, Express, Socket.io.
+*   **AI**: Google Gemini API (`@google/genai`).
 
-Includes classic and extended 狼人杀 roles (exact rules depend on configuration):
+## Prerequisites
 
-- **Villager**
-- **Werewolf**
-- **Seer / 预言家**
-- **Witch / 女巫**
-- **Hunter / 猎人**
+*   [Node.js](https://nodejs.org/) (v16 or higher)
+*   [npm](https://www.npmjs.com/) or yarn
+*   A **Google Gemini API Key** (Get one at [aistudio.google.com](https://aistudio.google.com/))
 
-Extended roles (optional, configurable per room):
+## Installation
 
-- **Guardian / 守卫**
-- **Idiot / 白痴**
-- **White Wolf King / 白狼王**
-- **Wolf Beauty / 狼美人**
-- **Cupid / 爱神**
-- **Sheriff / 警长** with “上警” election flow
+1.  **Clone the repository** (or download the source files).
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
 
-Sheriff mechanics:
+## Configuration
 
-- First-day “上警” phase:
-  - Players choose whether to campaign for sheriff
-  - Candidates speak in order, under time limit
-  - All players vote for sheriff
-- Sheriff abilities:
-  - Controls/anchors day speaking order
-  - Has weighted vote during executions
-  - Can pass or destroy badge on death (depending on rules)
+To enable the AI bots' chatting capabilities, you must configure your API key.
 
-### Multi-language UI
+1.  Create a `.env` file in the root directory (or set environment variables in your deployment platform).
+2.  Add your Google API Key:
+    ```env
+    API_KEY=your_actual_api_key_here
+    ```
 
-- Supports **Chinese** and **English** UI
-- Each player can choose their own UI language
-- System messages (phase changes, timers, speaking turn, etc.) are localized per player
+## Running the Application
 
-### Speaking & Voice Rules
+To play Multiplayer, you need to run the backend server. For Single Player, the React app alone is sufficient (though some build setups requires the server context).
 
-- The game UI itself is **text-only**:
-  - Bot / system communicates solely via text
-  - Player communication is assumed to be via **voice** (e.g. Discord / in-person)
-- Strict turn-based speaking:
-  - Only **one player at a time** is allowed to speak (per game rules)
-  - UI shows whose turn it is
-  - Other players cannot “speak” in-game while it’s not their turn (no text chat)
-- **Per-turn 60-second timer**:
-  - Each speaking turn is capped at 60 seconds
-  - At the last 10 seconds, the app shows a special “10 seconds left” warning
-  - When time is up, turn automatically passes to the next player
+### 1. Start the Multiplayer Server
+The server handles game state synchronization and socket connections.
 
-### Room Invitations
+```bash
+# Using ts-node (recommended for dev)
+npx ts-node server.ts
 
-- When a host creates a room:
-  - Server generates a unique **invite link** for the room
-  - Anyone with the link can join as a player (while the game hasn’t started and the room is not full)
-- Joining via link:
-  - Player chooses a nickname
-  - Player chooses UI language (English/Chinese)
-  - Player enters the room and appears in the room member list
+# OR if compiled to JS
+node dist/server.js
+```
+*The server runs on port `3000` by default.*
 
----
+### 2. Start the Client (Frontend)
+Open a new terminal window to run the React application.
 
-## Project Structure
+```bash
+npm start
+# OR depending on your bundler (Vite, Parcel, etc.)
+npm run dev
+```
 
-> **Note:** The exact structure may vary slightly; check this section against your repository layout and adjust as needed.
+Open your browser to `http://localhost:1234` (or whatever port your bundler uses).
 
-A typical layout looks like:
+## How to Play
 
-```text
-Wearwolf-AI/
-  frontend/        # Web client (React/Vue/etc.)
-  backend/         # Game server (Node.js, WebSocket, game state)
-  package.json     # Or per-folder package.json files
-  README.md
-  ...
+### Hosting a Local Game (Multiplayer)
+
+1.  Ensure the **Server** is running (`npx ts-node server.ts`).
+2.  Open the **Client** in your browser.
+3.  Select **Multiplayer**.
+4.  Enter your **Nickname**.
+5.  Leave the "Room ID" field **empty** and click **Create Room**.
+6.  Share the generated **Room ID** (displayed in the Lobby) with your friends.
+7.  (Optional) Click **Add Bot** to fill empty seats with AI players.
+8.  Adjust role counts using the controls at the bottom.
+9.  Click **Start Game**.
+
+### Joining a Game
+
+1.  Select **Multiplayer**.
+2.  Enter your **Nickname**.
+3.  Enter the **Room ID** provided by the host.
+4.  Click **Join Room**.
+
+### Single Player
+
+1.  Select **Single Player** on the main screen.
+2.  Enter your Nickname and click **Start Game**.
+3.  The game runs entirely in your browser. AI bots will simulate server logic and chat automatically.
+
+## Game Rules & Mechanics
+
+*   **Night Phase**: Werewolves choose a victim. Seer checks identities. Witch uses potions. Guardian protects.
+*   **Day Phase**:
+    *   **Election**: Players can run for Sheriff (1.5x vote weight).
+    *   **Discussion**: Players speak in turn.
+    *   **Voting**: Majority vote eliminates a player.
+    *   **Death**: Dead players can chat with other dead players (and the Host), but cannot talk to the living.
