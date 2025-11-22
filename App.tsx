@@ -13,6 +13,7 @@ import { ROLES, PHASE_DURATION, AVATARS, TEXT } from './constants';
 import PlayerCard from './components/PlayerCard';
 import Chat from './components/Chat';
 import { generateBotChatter } from './services/geminiService';
+import { getBotVote, processBotNightActions, getBotSheriffHandover } from './services/botLogic';
 
 // --- Icons ---
 const MicOnIcon = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z" /><path d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 1 0 10.5 0v-1.5a.75.75 0 0 1 1.5 0v1.5a6.751 6.751 0 0 1-6 6.5v3a.75.75 0 0 1-1.5 0v-3a6.751 6.751 0 0 1-6-6.5v-1.5A.75.75 0 0 1 6 10.5Z" /></svg>;
@@ -56,7 +57,7 @@ const createInitialPlayers = (userName: string, roleConfig: Record<RoleType, num
     isOnline: true,
     isSpectator: false
   });
-  const botNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Evan', 'Fiona', 'George', 'Hannah'];
+  const botNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Evan', 'Fiona', 'George', 'Hannah', 'Ian', 'Julia'];
   for(let i=1; i<totalPlayers; i++) {
     players.push({
       id: `player-bot-${i}`,
@@ -201,7 +202,6 @@ const App: React.FC = () => {
 
   const toggleAudio = () => {
     setIsAudioOn(!isAudioOn);
-    // In a real app, this would mute incoming audio streams
   };
 
   // --- Chat Logic ---
@@ -321,13 +321,17 @@ const App: React.FC = () => {
 
     if (gameState.phase === GamePhase.DAY_SPEECH && gameState.currentSpeakerId) {
       const speaker = gameState.players.find(p => p.id === gameState.currentSpeakerId);
-      if (speaker && speaker.isBot) {
+      if (speaker && speaker.isBot && speaker.isAlive) {
         const delay = Math.random() * 3000 + 2000;
         const speakTimeout = setTimeout(async () => {
           const text = await generateBotChatter(gameState, speaker);
-          if(mode === 'offline') {
-            addLog(text, false, speaker.name);
-            setTimeout(() => handleNextSpeaker(), 2000);
+          
+          if (mode === 'online') {
+             // Emit as a message from the host on behalf of the bot
+             socketRef.current?.emit('bot_chat', { senderId: speaker.id, senderName: speaker.name, content: text });
+          } else {
+             addLog(text, false, speaker.name);
+             setTimeout(() => handleNextSpeaker(), 2000);
           }
         }, delay);
         return () => clearTimeout(speakTimeout);
@@ -344,7 +348,6 @@ const App: React.FC = () => {
          socketRef.current?.emit('update_role_counts', newCounts);
      } else {
          setOfflineRoleCounts(prev => ({ ...prev, [role]: Math.max(0, prev[role] + increment) }));
-         // Need to update gamestate rolecounts too for sync
          setGameState(prev => ({...prev, roleCounts: { ...prev.roleCounts, [role]: Math.max(0, prev.roleCounts[role] + increment) } }));
      }
   };
@@ -379,15 +382,24 @@ const App: React.FC = () => {
     if (mode === 'online') {
        return;
     }
-    // Offline logic...
     setGameState(prev => {
       const queue = [...prev.speechQueue];
       queue.shift(); 
       if (queue.length === 0) {
         const nextPhase = prev.phase === GamePhase.ELECTION_SPEECH ? GamePhase.ELECTION_VOTE : GamePhase.DAY_VOTE;
         const duration = prev.phase === GamePhase.ELECTION_SPEECH ? PHASE_DURATION.ELECTION_VOTE : PHASE_DURATION.DAY_VOTE;
+        
+        // PRE-CALCULATE BOT VOTES
+        const playersWithVotes = prev.players.map(p => {
+           if (p.isBot && p.isAlive) {
+              const targetId = getBotVote(prev, p);
+              return { ...p, votedFor: targetId };
+           }
+           return p;
+        });
+
         return {
-          ...prev, phase: nextPhase, timer: duration, currentSpeakerId: null, speechQueue: [],
+          ...prev, phase: nextPhase, timer: duration, currentSpeakerId: null, speechQueue: [], players: playersWithVotes,
           messages: [...prev.messages, { id: uuidv4(), senderId: 'sys', senderName: 'Sys', content: t('sys_election_vote'), timestamp: Date.now(), isSystem: true }]
         };
       } else {
@@ -408,10 +420,68 @@ const App: React.FC = () => {
       let nextTimer = 0;
       let newPlayers = prev.players.map(p => ({...p}));
       let pendingSheriffDeath = prev.pendingSheriffDeathId;
-      
-      // --- Offline Mode Logic for Results & Transitions ---
+      let currentNightActions = {...prev.nightActions};
+      let messages = [...prev.messages];
 
-      if (prev.phase === GamePhase.DAY_VOTE) {
+      // --- Offline Mode Logic for Results & Transitions ---
+      
+      if (prev.phase === GamePhase.NIGHT) {
+          // 1. Simulate Bot Night Actions
+          currentNightActions = processBotNightActions({...prev, nightActions: currentNightActions});
+
+          // 2. Resolve Night Actions (Simple Version)
+          const deadIds: string[] = [];
+          if (currentNightActions.werewolfTargetId) {
+             let victimId = currentNightActions.werewolfTargetId;
+             
+             // Guardian Save
+             if (currentNightActions.guardianTargetId === victimId) {
+                 victimId = '';
+             }
+             
+             // Witch Save
+             if (currentNightActions.witchSaveTargetId === victimId) {
+                 victimId = '';
+             }
+
+             if (victimId) deadIds.push(victimId);
+          }
+
+          // Witch Poison
+          if (currentNightActions.witchPoisonUsed && currentNightActions.witchTargetId) {
+              deadIds.push(currentNightActions.witchTargetId);
+          }
+
+          // Apply Deaths
+          if (deadIds.length > 0) {
+              deadIds.forEach(id => {
+                  const p = newPlayers.find(pl => pl.id === id);
+                  if (p) {
+                      p.isAlive = false;
+                      // Check Sheriff
+                      if (p.isSheriff) pendingSheriffDeath = p.id;
+                  }
+              });
+          }
+
+          // Update Guard History
+          currentNightActions.lastGuardedId = currentNightActions.guardianTargetId;
+          // Reset Round Actions
+          currentNightActions.guardianTargetId = null;
+          currentNightActions.werewolfTargetId = null;
+          currentNightActions.seerTargetId = null;
+          currentNightActions.witchTargetId = null;
+          currentNightActions.witchSaveTargetId = null;
+
+          nextPhase = GamePhase.DAY_SPEECH;
+          nextTimer = PHASE_DURATION.DAY_SPEECH;
+          // Reset votes
+          newPlayers.forEach(p => { p.votedFor = null; p.votesReceived = 0; });
+          
+          // Add Log
+          messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: deadIds.length > 0 ? `Night over. ${deadIds.length} player(s) died.` : 'Night over. No one died.', timestamp: Date.now(), isSystem: true });
+      }
+      else if (prev.phase === GamePhase.DAY_VOTE) {
           // 1. Tally Votes (With Sheriff 1.5x Weight)
           const voteCounts: Record<string, number> = {};
           let maxVotes = -1;
@@ -431,7 +501,7 @@ const App: React.FC = () => {
                  maxVotes = p.votesReceived;
                  victimId = p.id;
              } else if (p.votesReceived === maxVotes) {
-                 victimId = null; // Tie (simplified: no death)
+                 victimId = null; // Tie
              }
           });
 
@@ -440,11 +510,13 @@ const App: React.FC = () => {
               const victim = newPlayers.find(p => p.id === victimId);
               if (victim) {
                   victim.isAlive = false;
-                  // Log elimination would be done via side effect or log queue, simplifying here for state update
+                  messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: `${victim.name} was voted out.`, timestamp: Date.now(), isSystem: true });
                   if (victim.isSheriff) {
                       pendingSheriffDeath = victim.id;
                   }
               }
+          } else {
+               messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: `No one voted out (Tie or No Votes).`, timestamp: Date.now(), isSystem: true });
           }
           
           nextPhase = GamePhase.DAY_VOTE_RESULT;
@@ -453,8 +525,28 @@ const App: React.FC = () => {
       else if (prev.phase === GamePhase.DAY_VOTE_RESULT) {
           // Check for Sheriff death handover
           if (pendingSheriffDeath) {
-              nextPhase = GamePhase.SHERIFF_HANDOVER;
-              nextTimer = PHASE_DURATION.SHERIFF_HANDOVER;
+              const sheriffBot = newPlayers.find(p => p.id === pendingSheriffDeath && p.isBot);
+              if (sheriffBot) {
+                  // Bot Sheriff Logic
+                  const successorId = getBotSheriffHandover({ ...prev, players: newPlayers }, sheriffBot);
+                  if (successorId) {
+                      const successor = newPlayers.find(p => p.id === successorId);
+                      if (successor) successor.isSheriff = true;
+                      sheriffBot.isSheriff = false;
+                      messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: `${sheriffBot.name} passed badge to ${successor?.name}.`, timestamp: Date.now(), isSystem: true });
+                  } else {
+                      sheriffBot.isSheriff = false;
+                      messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: `Badge torn up.`, timestamp: Date.now(), isSystem: true });
+                  }
+                  pendingSheriffDeath = null;
+                  nextPhase = GamePhase.NIGHT;
+                  nextTimer = PHASE_DURATION.NIGHT;
+                  nextRound++;
+              } else {
+                  // Human sheriff - wait for input
+                  nextPhase = GamePhase.SHERIFF_HANDOVER;
+                  nextTimer = PHASE_DURATION.SHERIFF_HANDOVER;
+              }
           } else {
               nextPhase = GamePhase.NIGHT;
               nextTimer = PHASE_DURATION.NIGHT;
@@ -471,14 +563,31 @@ const App: React.FC = () => {
           nextTimer = PHASE_DURATION.NIGHT;
           nextRound++;
       }
-      else if (prev.phase === GamePhase.NIGHT) {
-          nextPhase = GamePhase.DAY_SPEECH;
-          nextTimer = PHASE_DURATION.DAY_SPEECH;
-          // Reset votes
-          newPlayers.forEach(p => { p.votedFor = null; p.votesReceived = 0; });
-      } else if (prev.phase === GamePhase.DAY_SPEECH) {
+      else if (prev.phase === GamePhase.DAY_SPEECH) {
           nextPhase = GamePhase.DAY_VOTE;
           nextTimer = PHASE_DURATION.DAY_VOTE;
+          // Bot Votes Logic duplicate needed here if transition happens via timer not nextSpeaker
+          const playersWithVotes = newPlayers.map(p => {
+            if (p.isBot && p.isAlive) {
+                const targetId = getBotVote(prev, p);
+                return { ...p, votedFor: targetId };
+            }
+            return p;
+          });
+          newPlayers = playersWithVotes;
+      }
+
+      // Check Winner
+      let winner: 'VILLAGERS' | 'WEREWOLVES' | 'LOVERS' | null = null;
+      const wolves = newPlayers.filter(p => p.isAlive && ROLES[p.role].team === 'WEREWOLVES').length;
+      const villagers = newPlayers.filter(p => p.isAlive && ROLES[p.role].team === 'VILLAGERS').length; // Simply count non-wolves for basic check
+      
+      if (wolves === 0) winner = 'VILLAGERS';
+      else if (wolves >= villagers) winner = 'WEREWOLVES';
+
+      if (winner) {
+         nextPhase = GamePhase.GAME_OVER;
+         messages.push({ id: uuidv4(), senderId: 'sys', senderName: 'System', content: 'Game Over!', timestamp: Date.now(), isSystem: true });
       }
 
       return { 
@@ -487,14 +596,16 @@ const App: React.FC = () => {
         round: nextRound, 
         timer: nextTimer, 
         players: newPlayers,
-        pendingSheriffDeathId: pendingSheriffDeath
+        nightActions: currentNightActions,
+        pendingSheriffDeathId: pendingSheriffDeath,
+        messages: messages,
+        winner
       };
     });
   };
 
   const handleInteraction = (targetId: string) => {
     if (mode === 'online') {
-      // Disable interaction for spectators
       const local = gameState.players.find(p => p.id === localStorage.getItem('ww_player_id'));
       if (local?.isSpectator) return;
 
@@ -511,25 +622,41 @@ const App: React.FC = () => {
        handleSheriffAction(targetId);
        return;
     }
+    
+    // Offline Night Action (User)
+    if (gameState.phase === GamePhase.NIGHT) {
+       const localPlayer = gameState.players.find(p => p.id === 'player-user');
+       if (localPlayer && localPlayer.isAlive) {
+          setGameState(prev => {
+             const newActions = { ...prev.nightActions };
+             if (localPlayer.role === RoleType.WEREWOLF) newActions.werewolfTargetId = targetId;
+             if (localPlayer.role === RoleType.SEER) newActions.seerTargetId = targetId;
+             if (localPlayer.role === RoleType.GUARDIAN) newActions.guardianTargetId = targetId;
+             if (localPlayer.role === RoleType.WITCH) {
+                // Simplified Witch click: Toggle Poison if clicked
+                // Real UI would need split buttons
+                if (newActions.werewolfTargetId === targetId && !newActions.witchHealUsed) {
+                    newActions.witchSaveTargetId = targetId;
+                    newActions.witchHealUsed = true;
+                } else if (!newActions.witchPoisonUsed) {
+                    newActions.witchTargetId = targetId;
+                    newActions.witchPoisonUsed = true;
+                }
+             }
+             return { ...prev, nightActions: newActions };
+          });
+       }
+       return;
+    }
 
     if (gameState.phase === GamePhase.DAY_VOTE || gameState.phase === GamePhase.ELECTION_VOTE) {
-       // Vote Logic
        const localId = 'player-user';
-       if (targetId === localId) return; // Can't vote self? (Rules vary, allowing for now implies click handling)
+       if (targetId === localId) return; 
        
        setGameState(prev => {
          const newPlayers = prev.players.map(p => 
             p.id === localId ? { ...p, votedFor: targetId } : p
          );
-         // Simulate bot votes
-         newPlayers.forEach(p => {
-            if (p.isBot && p.isAlive) {
-                // Random valid vote
-                const candidates = prev.players.filter(c => c.isAlive && c.id !== p.id);
-                const choice = candidates[Math.floor(Math.random() * candidates.length)];
-                if (choice) p.votedFor = choice.id;
-            }
-         });
          return { ...prev, players: newPlayers };
        });
        setSelectedTargetId(targetId);
@@ -539,7 +666,6 @@ const App: React.FC = () => {
   };
 
   const handleSheriffAction = (targetId: string | null) => {
-     // Offline only helper
      setGameState(prev => {
         const newPlayers = prev.players.map(p => ({...p}));
         const oldSheriff = newPlayers.find(p => p.id === prev.pendingSheriffDeathId);
@@ -561,7 +687,7 @@ const App: React.FC = () => {
         return {
             ...prev,
             players: newPlayers,
-            phase: GamePhase.NIGHT, // Simplified transition
+            phase: GamePhase.NIGHT, 
             timer: PHASE_DURATION.NIGHT,
             round: prev.round + 1,
             pendingSheriffDeathId: null
@@ -843,7 +969,6 @@ const App: React.FC = () => {
          return false;
      }
      
-     // Fallback (should catch normal alive player chat if we allowed it, but we don't)
      return true;
   });
 
